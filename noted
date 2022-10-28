@@ -22,37 +22,68 @@ EOF
 }
 
 create() {
-  newEntry() {
-    headerText="$@"
-    result="${TEMPLATE_TEXT}"
-    result="${result/HEADERTEXT/$headerText}"
-    result="${result/TIMESTAMP/$timestamp}"
+  newNoteFile() {
+    fileheaderText="$@"
+    result="${FILE_TEMPLATE_TEXT}"
+    result="${result/FILEHEADERTEXT/$fileheaderText}"
+    result="${result/FILETIMESTAMP/$filetimestamp}"
     echo -e "\n$result\n"
   }
-  TEMPLATE_TEXT=""
-  if [ -f "${NOTED_TEMPLATE_FILE}" ]; then
+  newEntry() {
+    entryheaderText="$@"
+    result="${ENTRY_TEMPLATE_TEXT}"
+    result="${result/ENTRYHEADERTEXT/$entryheaderText}"
+    result="${result/ENTRYTIMESTAMP/$entrytimestamp}"
+    echo -e "\n$result\n"
+  }
+  FILE_TEMPLATE_TEXT=""
+  if [ -f "${NOTED_FILE_TEMPLATE_FILE}" ]; then
     # use template file
-    TEMPLATE_TEXT=$(<"${NOTED_TEMPLATE_FILE}")
+    FILE_TEMPLATE_TEXT=$(<"${NOTED_FILE_TEMPLATE_FILE}")
   else
-    read -r -d '' TEMPLATE_TEXT <<EOF || true
+    read -r -d '' FILE_TEMPLATE_TEXT <<EOF || true
 ---
-TIMESTAMP
+FILETIMESTAMP
 
-# HEADERTEXT
+# FILEHEADERTEXT
+
+
+---
+EOF
+  fi
+  ENTRY_TEMPLATE_TEXT=""
+  if [ -f "${NOTED_ENTRY_TEMPLATE_FILE}" ]; then
+    # use template file
+    ENTRY_TEMPLATE_TEXT=$(<"${NOTED_ENTRY_TEMPLATE_FILE}")
+  else
+    read -r -d '' ENTRY_TEMPLATE_TEXT <<EOF || true
+---
+ENTRYTIMESTAMP
+
+# ENTRYHEADERTEXT
 
 
 ---
 EOF
   fi
   mkdir -p "${NOTED_MARKDOWN_HOME}"
-  markdownFile "${currDate}"
+  fileName="${filenamedate}"
+  fileHeader="${fileheadertimestamp}"
   if [[ -n "${OPTIONAL_FILE}" ]]; then
-    markdownFile="${NOTED_MARKDOWN_HOME}/${OPTIONAL_FILE}"
+    fileName="${OPTIONAL_FILE}"
+    fileHeader="${OPTIONAL_FILE}"
   fi
-  touch "${markdownFile}"
+  markdownFile "${fileName}"
+  if [[ ! -f "${markdownFile}" ]]
+  then
+    echo "Creating new note file with name ${fileName}"
+    touch "${markdownFile}"
+    newNoteFile "${fileHeader}" >>"${markdownFile}"
+  fi
   if [ -n "${OPTIONAL_NOTE}" ]; then
     # Supplying a note means automatically add that to the file
     newEntry "${OPTIONAL_NOTE}" >>"${markdownFile}"
+    echo "Added note to note file"
   else
     # otherwise open it up with the template and let them edit
     newEntry >>"${markdownFile}"
@@ -82,8 +113,10 @@ outputConfig() {
   echo "The following configuration is currently being used:"
   echo "NOTED_MARKDOWN_HOME=${NOTED_MARKDOWN_HOME}"
   echo "NOTED_FILE_NAME_DATE_FORMAT=${NOTED_FILE_NAME_DATE_FORMAT}"
-  echo "NOTED_TIMESTAMP_FORMAT=${NOTED_TIMESTAMP_FORMAT}"
-  echo "NOTED_TEMPLATE_FILE=${NOTED_TEMPLATE_FILE:-<<DEFAULT>>}"
+  echo "NOTED_FILE_TIMESTAMP_FORMAT=${NOTED_FILE_TIMESTAMP_FORMAT}"
+  echo "NOTED_ENTRY_TIMESTAMP_FORMAT=${NOTED_ENTRY_TIMESTAMP_FORMAT}"
+  echo "NOTED_FILE_TEMPLATE_FILE=${NOTED_FILE_TEMPLATE_FILE:-<<DEFAULT>>}"
+  echo "NOTED_ENTRY_TEMPLATE_FILE=${NOTED_FILE_TEMPLATE_FILE:-<<DEFAULT>>}"
   echo "NOTED_TODO_MARKER=${NOTED_TODO_MARKER}"
 }
 
@@ -119,8 +152,11 @@ CONFIG_FILE=$HOME/.notedconfig
 # name files like this
 NOTED_FILE_NAME_DATE_FORMAT="+%Y-%m-%d"
 # timestamp entries within the files like this
-NOTED_TIMESTAMP_FORMAT="+%H:%M:%S UTC"
-NOTED_TEMPLATE_FILE=""
+NOTED_FILE_TIMESTAMP_FORMAT="+%H:%M:%S UTC"
+NOTED_FILEHEADER_TIMESTAMP_FORMAT="+%A %d %B %Y"
+NOTED_ENTRY_TIMESTAMP_FORMAT="+%H:%M:%S UTC"
+NOTED_FILE_TEMPLATE_FILE=""
+NOTED_ENTRY_TEMPLATE_FILE=""
 # keep the directory where notes are stored here
 NOTED_MARKDOWN_HOME=$HOME/Documents/notes
 NOTED_TODO_MARKER="TODO"
@@ -130,20 +166,36 @@ NOTED_TODO_MARKER="TODO"
 #
 loadProperties
 
-currDate=$(date "${NOTED_FILE_NAME_DATE_FORMAT}")
-timestamp=$(date "${NOTED_TIMESTAMP_FORMAT}")
+filenamedate=$(date "${NOTED_FILE_NAME_DATE_FORMAT}")
+filetimestamp=$(date "${NOTED_FILE_TIMESTAMP_FORMAT}")
+fileheadertimestamp=$(date "${NOTED_FILEHEADER_TIMESTAMP_FORMAT}")
+entrytimestamp=$(date "${NOTED_ENTRY_TIMESTAMP_FORMAT}")
 
-todaysFile="${NOTED_MARKDOWN_HOME}/${currDate}.md"
+todaysFile="${NOTED_MARKDOWN_HOME}/${filenamedate}.md"
 
 subcommand="$1"
 if  [[ "${subcommand}" == "config" ]]; then
   outputConfig
 elif [[ "${subcommand}" == "version" ]]; then
   version
+elif [[ "${subcommand}" == "build" ]]; then
+	if ! pgrep -x "hugo" >/dev/null; then
+		hugo server -D -s ${NOTED_MARKDOWN_HOME}/../.. >/dev/null &
+	fi
+	firefox localhost:1313
+elif [[ "${subcommand}" == "sync" ]]; then
+	if ! pgrep -x "git" >/dev/null; then
+		commmess="$(date)"$  
+		git -C ${NOTED_MARKDOWN_HOME} fetch
+		git -C ${NOTED_MARKDOWN_HOME} add -A
+		git -C ${NOTED_MARKDOWN_HOME} commit -m "auto_sync ${commmess}"
+		git -C ${NOTED_MARKDOWN_HOME} push
+	fi
+	firefox localhost:1313
 elif [[ "${subcommand}" == "edit" ]] || [[ "${subcommand}" == "view" ]]; then
   arg="$2"
   if [[ -z "${arg}" ]]; then
-    arg="${currDate}"
+    arg="${filenamedate}"
   fi
   markdownFile "${arg}"
   edit "${markdownFile}"
